@@ -1,17 +1,37 @@
 import { memo } from 'react';
 
-const bookingStatusData = [
+type BookingStatusItem = {
+  name: string;
+  value: number;
+  color: string;
+};
+
+const fallbackBookingStatusData: BookingStatusItem[] = [
   { name: 'Upcoming', value: 35, color: '#3b82f6' },
   { name: 'Completed', value: 52, color: '#10b981' },
   { name: 'Cancelled', value: 13, color: '#ef4444' },
 ];
 
-export const BookingStatusChart = memo(() => {
-  const total = bookingStatusData.reduce((sum, item) => sum + item.value, 0);
+interface BookingStatusChartProps {
+  data?: BookingStatusItem[];
+}
+
+export const BookingStatusChart = memo(({ data }: BookingStatusChartProps) => {
+  const chartData = data && data.length ? data : fallbackBookingStatusData;
+  const total = chartData.reduce((sum, item) => sum + item.value, 0);
+
+  if (total === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[240px] text-center text-gray-500">
+        <p className="text-sm font-medium">No booking data yet</p>
+        <p className="text-xs mt-1">Charts will update as bookings are created</p>
+      </div>
+    );
+  }
   
   // Calculate pie slices
   let currentAngle = -90; // Start from top
-  const slices = bookingStatusData.map((item) => {
+  const slices = chartData.map((item) => {
     const percentage = item.value / total;
     const angle = percentage * 360;
     const slice = {
@@ -67,7 +87,7 @@ export const BookingStatusChart = memo(() => {
       </div>
       
       <div className="mt-3 md:mt-4 space-y-2">
-        {bookingStatusData.map((item, index) => (
+        {chartData.map((item, index) => (
           <div key={`legend-${index}-${item.name}`} className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }}></div>

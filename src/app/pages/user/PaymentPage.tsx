@@ -12,7 +12,7 @@ import { showSuccessToast, showPromiseToast } from '../../utils/notificationHelp
 
 export const PaymentPage = () => {
   const navigate = useNavigate();
-  const { selectedSlots, createBooking, appSettings } = useBooking();
+  const { selectedSlots, createBooking, getTotalAmount } = useBooking();
   const { user } = useAuth();
   const { addNotification } = useNotifications();
   const [processing, setProcessing] = useState(false);
@@ -30,10 +30,8 @@ export const PaymentPage = () => {
   }
 
   const subtotal = selectedSlots.reduce((sum, slot) => sum + slot.price, 0);
-  const total = subtotal;
-  const venueName = typeof appSettings.landing?.venueName === 'string'
-    ? appSettings.landing.venueName
-    : 'thecourtyard Sports Arena';
+  const gst = Math.round(subtotal * 0.18);
+  const total = subtotal + gst;
 
   const handlePayment = async () => {
     setProcessing(true);
@@ -49,7 +47,7 @@ export const PaymentPage = () => {
       });
 
       const booking = await createBooking({
-        courtName: venueName,
+        courtName: 'thecourtyard Sports Arena',
         date: selectedSlots[0].date,
         slots: selectedSlots,
         totalAmount: total,
@@ -112,7 +110,7 @@ export const PaymentPage = () => {
             <div className="space-y-3 mb-6">
               <div>
                 <p className="text-xs md:text-sm text-gray-600">Court</p>
-                <p className="font-medium text-sm md:text-base">{venueName}</p>
+                <p className="font-medium text-sm md:text-base">thecourtyard Sports Arena</p>
               </div>
               
               <div>
@@ -135,6 +133,10 @@ export const PaymentPage = () => {
               <div className="flex justify-between text-xs md:text-base text-gray-700">
                 <span>Subtotal</span>
                 <span className="font-medium">₹{subtotal}</span>
+              </div>
+              <div className="flex justify-between text-xs md:text-base text-gray-700">
+                <span>GST (18%)</span>
+                <span className="font-medium">₹{gst}</span>
               </div>
               <div className="flex justify-between text-lg md:text-2xl font-bold text-gray-800 pt-3 border-t border-gray-200">
                 <span>Total Amount</span>

@@ -1,24 +1,33 @@
 import { memo } from 'react';
 
-const revenueData = [
+type RevenuePoint = {
+  month: string;
+  revenue: number;
+};
+
+const fallbackRevenueData: RevenuePoint[] = [
   { month: 'Jan', revenue: 45000 },
   { month: 'Feb', revenue: 52000 },
   { month: 'Mar', revenue: 61000 },
   { month: 'Apr', revenue: 48000 },
 ];
 
-export const RevenueChart = memo(() => {
-  const maxRevenue = Math.max(...revenueData.map(d => d.revenue));
-  const chartHeight = 200;
-  const chartWidth = 100; // percentage based
-  const barWidth = 100 / revenueData.length;
+interface RevenueChartProps {
+  data?: RevenuePoint[];
+}
+
+export const RevenueChart = memo(({ data }: RevenueChartProps) => {
+  const chartData = data && data.length ? data : fallbackRevenueData;
+  const maxRevenue = Math.max(...chartData.map(d => d.revenue), 0);
+  const scaleMax = maxRevenue > 0 ? maxRevenue : 1;
+  const barWidth = 100 / chartData.length;
   
   return (
     <div className="w-full h-[250px] flex flex-col">
       {/* Chart Area */}
       <div className="flex-1 relative flex items-end justify-around px-4 pb-8">
-        {revenueData.map((item, index) => {
-          const height = (item.revenue / maxRevenue) * 100;
+        {chartData.map((item, index) => {
+          const height = (item.revenue / scaleMax) * 100;
           
           return (
             <div
@@ -49,9 +58,9 @@ export const RevenueChart = memo(() => {
       
       {/* Y-axis labels */}
       <div className="absolute left-0 top-0 h-[200px] flex flex-col justify-between text-xs text-gray-600 pr-2">
-        <div>₹60k</div>
-        <div>₹40k</div>
-        <div>₹20k</div>
+        <div>₹{Math.round(scaleMax).toLocaleString()}</div>
+        <div>₹{Math.round(scaleMax * 0.66).toLocaleString()}</div>
+        <div>₹{Math.round(scaleMax * 0.33).toLocaleString()}</div>
         <div>₹0</div>
       </div>
     </div>

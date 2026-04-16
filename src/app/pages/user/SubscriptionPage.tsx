@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Calendar as CalendarIcon, Clock, MapPin, CreditCard, CheckCircle, AlertCircle, CalendarDays } from 'lucide-react';
 import { format, addDays, isWeekend, eachDayOfInterval, parse } from 'date-fns';
@@ -12,7 +12,7 @@ import { Input } from '../../components/Input';
 export const SubscriptionPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { createSubscription, appSettings } = useBooking();
+  const { appSettings, createSubscription, isSlotBooked } = useBooking();
   const [step, setStep] = useState(1);
   const [startDate, setStartDate] = useState('');
   const [selectedCourt, setSelectedCourt] = useState('');
@@ -20,20 +20,21 @@ export const SubscriptionPage = () => {
   const [processing, setProcessing] = useState(false);
   const [dateError, setDateError] = useState('');
 
-  const subscriptionPrice = appSettings.pricing.subscription;
+  const subscriptionPrice = appSettings.pricing.subscription || 2500;
   const courts = appSettings.courts.length ? appSettings.courts : ['Court 1', 'Court 2', 'Court 3'];
-  const timeSlots = [
-    '5:00 AM - 6:00 AM',
-    '6:00 AM - 7:00 AM',
-    '7:00 AM - 8:00 AM',
-    '8:00 AM - 9:00 AM',
-    '9:00 AM - 10:00 AM',
-    '5:00 PM - 6:00 PM',
-    '6:00 PM - 7:00 PM',
-    '7:00 PM - 8:00 PM',
-    '8:00 PM - 9:00 PM',
-    '9:00 PM - 10:00 PM',
-  ];
+  const timeSlots = useMemo(() => {
+    const slots: string[] = [];
+    for (let hour = appSettings.operatingHours.startHour; hour <= appSettings.operatingHours.endHour; hour += 1) {
+      const formatHour = (value: number) => {
+        const period = value >= 12 ? 'PM' : 'AM';
+        const displayHour = value % 12 || 12;
+        return `${displayHour}:00 ${period}`;
+      };
+
+      slots.push(`${formatHour(hour)} - ${formatHour(hour + 1)}`);
+    }
+    return slots;
+  }, [appSettings.operatingHours.endHour, appSettings.operatingHours.startHour]);
 
   const calculateEndDate = (start: string) => {
     if (!start) return '';
@@ -48,6 +49,39 @@ export const SubscriptionPage = () => {
     const end = new Date(calculateEndDate(startDate));
     const days = eachDayOfInterval({ start, end });
     return days.filter(day => !isWeekend(day)).length;
+  };
+
+  const getSubscriptionDates = () => {
+    if (!startDate) {
+      return [] as string[];
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(calculateEndDate(startDate));
+    const days = eachDayOfInterval({ start, end });
+
+    return days
+      .filter(day => !isWeekend(day))
+      .map(day => format(day, 'yyyy-MM-dd'));
+  };
+
+  const subscriptionDates = useMemo(getSubscriptionDates, [startDate]);
+  const selectedCourtNumber = selectedCourt ? Number(selectedCourt.replace('Court ', '')) : 0;
+
+  const conflictingDates = useMemo(() => {
+    if (!startDate || !selectedCourtNumber || !selectedTimeSlot) {
+      return [] as string[];
+    }
+
+    return subscriptionDates.filter(date => isSlotBooked(date, selectedCourtNumber, selectedTimeSlot));
+  }, [isSlotBooked, selectedCourtNumber, selectedTimeSlot, subscriptionDates, startDate]);
+
+  const isSelectedSlotUnavailable = (slot: string) => {
+    if (!startDate || !selectedCourtNumber) {
+      return false;
+    }
+
+    return subscriptionDates.some(date => isSlotBooked(date, selectedCourtNumber, slot));
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -87,6 +121,11 @@ export const SubscriptionPage = () => {
       return;
     }
 
+    if (conflictingDates.length > 0) {
+      alert(`This court and time slot is already booked on ${conflictingDates.length} date(s). Please choose another slot.`);
+      return;
+    }
+
     setProcessing(true);
 
     try {
@@ -94,9 +133,8 @@ export const SubscriptionPage = () => {
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       const subscription = await createSubscription({
-        userId: user.email,
         courtName: selectedCourt,
-        court: Math.max(1, courts.indexOf(selectedCourt) + 1),
+        court: Number(selectedCourt.replace('Court ', '')),
         timeSlot: selectedTimeSlot,
         startDate,
         endDate: calculateEndDate(startDate),
@@ -272,22 +310,40 @@ export const SubscriptionPage = () => {
                     <button
                       key={slot}
                       onClick={() => setSelectedTimeSlot(slot)}
+                      disabled={isSelectedSlotUnavailable(slot)}
                       className={`p-3 rounded-lg border-2 transition-all text-left ${
-                        selectedTimeSlot === slot
+                        isSelectedSlotUnavailable(slot)
+                          ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : selectedTimeSlot === slot
                           ? 'border-[#10b981] bg-emerald-50'
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <Clock className={`w-4 h-4 ${selectedTimeSlot === slot ? 'text-[#10b981]' : 'text-gray-400'}`} />
-                        <span className={`text-sm font-medium ${selectedTimeSlot === slot ? 'text-[#10b981]' : 'text-gray-700'}`}>
+                        <Clock className={`w-4 h-4 ${isSelectedSlotUnavailable(slot) ? 'text-gray-400' : selectedTimeSlot === slot ? 'text-[#10b981]' : 'text-gray-400'}`} />
+                        <span className={`text-sm font-medium ${isSelectedSlotUnavailable(slot) ? 'text-gray-400' : selectedTimeSlot === slot ? 'text-[#10b981]' : 'text-gray-700'}`}>
                           {slot}
                         </span>
                       </div>
+                      {isSelectedSlotUnavailable(slot) && (
+                        <p className="text-xs text-red-500 mt-1">Booked for selected dates</p>
+                      )}
                     </button>
                   ))}
                 </div>
               </div>
+
+              {conflictingDates.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p className="text-sm font-semibold text-red-700 mb-2">Unavailable Selection</p>
+                  <p className="text-sm text-red-600 mb-2">
+                    The selected court and time slot is already booked on {conflictingDates.length} date(s) in this subscription period.
+                  </p>
+                  <p className="text-xs text-red-500">
+                    Please choose a different start date, court, or time slot.
+                  </p>
+                </div>
+              )}
 
               <div className="flex gap-3">
                 <Button
@@ -301,7 +357,7 @@ export const SubscriptionPage = () => {
                   variant="primary"
                   className="flex-1"
                   onClick={() => setStep(3)}
-                  disabled={!selectedCourt || !selectedTimeSlot}
+                  disabled={!selectedCourt || !selectedTimeSlot || conflictingDates.length > 0}
                 >
                   Continue to Summary
                 </Button>
@@ -346,13 +402,26 @@ export const SubscriptionPage = () => {
                     <span className="text-gray-600">Monthly Subscription</span>
                     <span className="font-medium">₹{subscriptionPrice}</span>
                   </div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-gray-600">GST (18%)</span>
+                    <span className="font-medium">₹{Math.round(subscriptionPrice * 0.18)}</span>
+                  </div>
                   <div className="flex justify-between items-center pt-3 border-t border-gray-200">
                     <span className="text-lg font-semibold">Total Amount</span>
                     <span className="text-2xl font-bold text-[#10b981]">
-                      ₹{subscriptionPrice}
+                      ₹{subscriptionPrice + Math.round(subscriptionPrice * 0.18)}
                     </span>
                   </div>
                 </div>
+
+                {conflictingDates.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <p className="text-sm font-semibold text-red-700 mb-1">Booking conflict detected</p>
+                    <p className="text-sm text-red-600">
+                      This subscription cannot be completed because the selected time slot is already booked for some dates in the period.
+                    </p>
+                  </div>
+                )}
               </div>
             </GlassCard>
 
@@ -381,9 +450,9 @@ export const SubscriptionPage = () => {
                     className="flex-1"
                     onClick={handleSubscribe}
                     loading={processing}
-                    disabled={processing}
+                    disabled={processing || conflictingDates.length > 0}
                   >
-                    {processing ? 'Processing...' : `Pay ₹${subscriptionPrice}`}
+                    {processing ? 'Processing...' : `Pay ₹${subscriptionPrice + Math.round(subscriptionPrice * 0.18)}`}
                   </Button>
                 </div>
               </div>

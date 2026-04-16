@@ -14,6 +14,8 @@ interface AuthContextType {
   login: (email: string, password: string, role: 'user' | 'admin') => Promise<void>;
   register: (name: string, email: string, phone: string, password: string) => Promise<'signed-in' | 'verification-required'>;
   resendVerificationEmail: (email: string) => Promise<void>;
+  requestPasswordReset: (email: string, role: 'user' | 'admin') => Promise<void>;
+  updatePassword: (newPassword: string) => Promise<void>;
   loginWithGoogle: (role: 'user' | 'admin') => Promise<void>;
   completeOAuthCallback: (roleHint?: 'user' | 'admin') => Promise<User | null>;
   logout: () => void;
@@ -348,6 +350,50 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const requestPasswordReset = async (email: string, role: 'user' | 'admin') => {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase auth is not configured');
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      throw new Error('Email is required');
+    }
+
+    const redirectPath = role === 'admin' ? '/admin/reset-password' : '/user/reset-password';
+
+    const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+      redirectTo: `${window.location.origin}${redirectPath}`,
+    });
+
+    if (error) {
+      throw error;
+    }
+  };
+
+  const updatePassword = async (newPassword: string) => {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase auth is not configured');
+    }
+
+    const password = newPassword.trim();
+    if (!password) {
+      throw new Error('Password is required');
+    }
+
+    const { data, error } = await supabase.auth.updateUser({ password });
+    if (error) {
+      throw error;
+    }
+
+    if (data.user) {
+      const nextUser = await buildUserFromSupabase(data.user, undefined, { skipProfileLookup: true });
+      if (nextUser) {
+        setUser(nextUser);
+      }
+    }
+  };
+
   const loginWithGoogle = async (role: 'user' | 'admin') => {
     if (!isSupabaseConfigured || !supabase) {
       // Fallback to mock login if Supabase env is not configured.
@@ -451,6 +497,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         login,
         register,
         resendVerificationEmail,
+        requestPasswordReset,
+        updatePassword,
         loginWithGoogle,
         completeOAuthCallback,
         logout,

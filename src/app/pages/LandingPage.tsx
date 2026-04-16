@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
+import { useEffect, useMemo, useState } from 'react';
 import { Calendar, CreditCard, Clock, Shield, CheckCircle, ArrowRight, Zap, Users, Award, Star } from 'lucide-react';
 import { Navbar } from '../components/Navbar';
 import { Button } from '../components/Button';
@@ -21,6 +22,43 @@ const iconMap: Record<string, any> = {
 export const LandingPage = () => {
   const navigate = useNavigate();
   const { content } = useLandingPage();
+  const [currentSlide, setCurrentSlide] = useState(0);
+
+  const heroSlides = useMemo(() => {
+    if (content.gallery.length > 0) {
+      return content.gallery.map((image) => ({
+        id: image.id,
+        src: image.url,
+        caption: image.caption,
+      }));
+    }
+
+    return [
+      {
+        id: 'hero-default',
+        src: content.heroImage,
+        caption: 'Instant Booking',
+      },
+    ];
+  }, [content.gallery, content.heroImage]);
+
+  useEffect(() => {
+    if (currentSlide >= heroSlides.length) {
+      setCurrentSlide(0);
+    }
+  }, [currentSlide, heroSlides.length]);
+
+  useEffect(() => {
+    if (heroSlides.length <= 1) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % heroSlides.length);
+    }, 3500);
+
+    return () => window.clearInterval(intervalId);
+  }, [heroSlides.length]);
 
   const getIcon = (iconName: string) => {
     return iconMap[iconName] || Calendar;
@@ -72,10 +110,10 @@ export const LandingPage = () => {
 
               <div className="flex flex-wrap gap-4">
                 <Button
-                  onClick={() => navigate('/user/booking')}
+                  onClick={() => navigate('/login')}
                   className="px-8 py-4 bg-gradient-to-r from-emerald-600 to-cyan-600 text-white rounded-xl hover:shadow-xl hover:scale-105 transition-all duration-300 font-semibold"
                 >
-                  {content.heroCTA}
+                  Login
                   <ArrowRight className="w-5 h-5 ml-2 inline" />
                 </Button>
                 <Button
@@ -121,26 +159,44 @@ export const LandingPage = () => {
 
                 {/* Main Image Card */}
                 <GlassCard className="p-4 hover:shadow-2xl transition-shadow duration-500">
-                  <div className="rounded-2xl overflow-hidden">
-                    <ImageWithFallback
-                      src={content.heroImage}
-                      alt="Sports Court"
-                      className="w-full h-64 md:h-96 object-cover"
-                    />
+                  <div className="rounded-2xl overflow-hidden relative h-64 md:h-96">
+                    {heroSlides.map((slide, index) => (
+                      <motion.div
+                        key={slide.id}
+                        initial={{ opacity: 0, scale: 1.02 }}
+                        animate={{
+                          opacity: index === currentSlide ? 1 : 0,
+                          scale: index === currentSlide ? 1 : 1.02,
+                        }}
+                        transition={{ duration: 0.7, ease: 'easeInOut' }}
+                        className="absolute inset-0"
+                        style={{ zIndex: index === currentSlide ? 2 : 1 }}
+                      >
+                        <ImageWithFallback
+                          src={slide.src}
+                          alt={slide.caption || 'Sports Court'}
+                          className="w-full h-full object-cover"
+                        />
+                      </motion.div>
+                    ))}
+
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent pointer-events-none" />
+
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/80 backdrop-blur-sm px-3 py-2 shadow-lg">
+                      {heroSlides.map((slide, index) => (
+                        <button
+                          key={slide.id}
+                          type="button"
+                          onClick={() => setCurrentSlide(index)}
+                          className={`h-2 rounded-full transition-all duration-300 ${
+                            index === currentSlide ? 'w-8 bg-emerald-500' : 'w-2 bg-gray-300 hover:bg-gray-400'
+                          }`}
+                          aria-label={`Show slide ${index + 1}`}
+                        />
+                      ))}
+                    </div>
                   </div>
 
-                  {/* Floating Badge */}
-                  <motion.div
-                    initial={{ y: 20, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ delay: 1 }}
-                    className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 bg-white rounded-2xl px-6 py-3 shadow-xl"
-                  >
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="w-5 h-5 text-green-500" />
-                      <span className="font-semibold text-gray-800">Instant Booking</span>
-                    </div>
-                  </motion.div>
                 </GlassCard>
               </div>
             </motion.div>

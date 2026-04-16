@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { supabase } from '../lib/supabaseClient';
 
 export interface LandingPageContent {
   // Hero Section
@@ -46,11 +47,14 @@ interface LandingPageContextType {
 
 const LandingPageContext = createContext<LandingPageContextType | undefined>(undefined);
 
+const STORAGE_KEY = 'tcy.landing-page.content';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '/api';
+
 const defaultContent: LandingPageContent = {
   heroTitle: 'Book Your Perfect Court',
   heroSubtitle: 'Experience Next-Level Sports',
   heroDescription: 'Premium court booking system with real-time availability, flexible subscriptions, and seamless payment integration. Your game, your schedule, your way.',
-  heroCTA: 'Get Started Free',
+  heroCTA: 'Login',
   heroSecondaryButton: 'Signup',
   heroImage: 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=800&h=600&fit=crop',
   
@@ -113,11 +117,113 @@ const defaultContent: LandingPageContent = {
   ],
 };
 
+const loadStoredContent = () => {
+  if (typeof window === 'undefined') {
+    return defaultContent;
+  }
+
+  const stored = window.localStorage.getItem(STORAGE_KEY);
+  if (!stored) {
+    return defaultContent;
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as Partial<LandingPageContent>;
+    return {
+      ...defaultContent,
+      ...parsed,
+      features: Array.isArray(parsed.features) ? parsed.features : defaultContent.features,
+      stats: Array.isArray(parsed.stats) ? parsed.stats : defaultContent.stats,
+      gallery: Array.isArray(parsed.gallery) ? parsed.gallery : defaultContent.gallery,
+    };
+  } catch {
+    return defaultContent;
+  }
+};
+
 export const LandingPageProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [content, setContent] = useState<LandingPageContent>(defaultContent);
+  const [content, setContent] = useState<LandingPageContent>(loadStoredContent());
+
+  useEffect(() => {
+    let active = true;
+
+    const loadRemoteContent = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/settings`);
+        const payload = await response.json();
+        const remoteContent = payload?.settings?.landing;
+
+        if (!active || !remoteContent || typeof remoteContent !== 'object') {
+          return;
+        }
+
+        setContent(prev => {
+          const nextContent = {
+            ...defaultContent,
+            ...prev,
+            ...remoteContent,
+            features: Array.isArray(remoteContent.features) ? remoteContent.features : prev.features,
+            stats: Array.isArray(remoteContent.stats) ? remoteContent.stats : prev.stats,
+            gallery: Array.isArray(remoteContent.gallery) ? remoteContent.gallery : prev.gallery,
+          };
+
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextContent));
+          }
+
+          return nextContent;
+        });
+      } catch {
+        // Keep the local fallback if the backend is temporarily unavailable.
+      }
+    };
+
+    void loadRemoteContent();
+
+    const pollTimer = window.setInterval(() => {
+      void loadRemoteContent();
+    }, 30000);
+
+    return () => {
+      active = false;
+      window.clearInterval(pollTimer);
+    };
+  }, []);
 
   const updateContent = (newContent: Partial<LandingPageContent>) => {
-    setContent((prev) => ({ ...prev, ...newContent }));
+    setContent((prev) => {
+      const nextContent = { ...prev, ...newContent };
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextContent));
+      }
+
+      void (async () => {
+        try {
+          if (!supabase) {
+            return;
+          }
+
+          const { data } = await supabase.auth.getSession();
+          const accessToken = data.session?.access_token;
+          if (!accessToken) {
+            return;
+          }
+
+          await fetch(`${API_BASE_URL}/settings`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({ landing: nextContent }),
+          });
+        } catch {
+          // Ignore sync failures; local state has already been updated.
+        }
+      })();
+
+      return nextContent;
+    });
   };
 
   return (

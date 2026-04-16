@@ -1,44 +1,230 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Users, Calendar, TrendingUp, DollarSign, Clock, CheckCircle } from 'lucide-react';
 import { Navbar } from '../../components/Navbar';
 import { GlassCard } from '../../components/GlassCard';
 import { useBooking } from '../../context/BookingContext';
 import { RevenueChart } from '../../components/charts/RevenueChart';
 import { BookingStatusChart } from '../../components/charts/BookingStatusChart';
-import { useState } from 'react';
 import { useNavigate } from 'react-router';
+import { format } from 'date-fns';
+import { supabase } from '../../lib/supabaseClient';
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '/api';
+
+const DEFAULT_SETTINGS = {
+  pricing: { offPeak: 500, peak: 800, subscription: 2500 },
+  courts: ['Court 1', 'Court 2', 'Court 3'],
+  operatingHours: { startHour: 5, endHour: 22 },
+};
 
 export const AdminDashboard = () => {
-  const { bookings } = useBooking();
+  const { bookings, subscriptions } = useBooking();
   const navigate = useNavigate();
   const [showRevenueModal, setShowRevenueModal] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [users, setUsers] = useState<Array<{
+    id: string;
+    name: string;
+    email: string;
+    phone?: string | null;
+    status: string;
+    bookings: number;
+    joinedAt: string;
+  }>>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadSettings = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/settings`);
+        const payload = await response.json();
+        if (!active || !payload?.settings) {
+          return;
+        }
+
+        setSettings({
+          pricing: payload.settings.pricing || DEFAULT_SETTINGS.pricing,
+          courts: Array.isArray(payload.settings.courts) && payload.settings.courts.length ? payload.settings.courts : DEFAULT_SETTINGS.courts,
+          operatingHours: payload.settings.operatingHours || DEFAULT_SETTINGS.operatingHours,
+        });
+      } catch {
+        if (active) {
+          setSettings(DEFAULT_SETTINGS);
+        }
+      }
+    };
+
+    void loadSettings();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showUserModal) {
+      return;
+    }
+
+    let active = true;
+
+    const loadUsers = async () => {
+      setUsersLoading(true);
+
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+
+        if (!accessToken) {
+          setUsers([]);
+          return;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/admin/users`, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+
+        const payload = await response.json();
+
+        if (!active || !response.ok) {
+          return;
+        }
+
+        setUsers(Array.isArray(payload?.users) ? payload.users : []);
+      } catch {
+        if (active) {
+          setUsers([]);
+        }
+      } finally {
+        if (active) {
+          setUsersLoading(false);
+        }
+      }
+    };
+
+    void loadUsers();
+
+    return () => {
+      active = false;
+    };
+  }, [showUserModal]);
+
+  const currentMonthKey = useMemo(() => format(new Date(), 'yyyy-MM'), []);
+  const monthLabel = useMemo(() => format(new Date(), 'MMMM yyyy'), []);
+
+  const activeBookings = useMemo(() => bookings.filter(booking => booking.status !== 'cancelled'), [bookings]);
+  const currentMonthBookings = useMemo(
+    () => activeBookings.filter(booking => (booking.createdAt || '').slice(0, 7) === currentMonthKey || (booking.date || '').slice(0, 7) === currentMonthKey),
+    [activeBookings, currentMonthKey]
+  );
+
+  const currentMonthSubscriptions = useMemo(
+    () => subscriptions.filter(subscription => subscription.status !== 'cancelled' && (subscription.createdAt || '').slice(0, 7) === currentMonthKey),
+    [currentMonthKey, subscriptions]
+  );
+
+  const liveStats = useMemo(() => {
+    const totalBookings = activeBookings.length;
+    const bookingRevenue = currentMonthBookings.reduce((sum, booking) => sum + Number(booking.totalAmount || 0), 0);
+    const subscriptionRevenue = currentMonthSubscriptions.reduce((sum, subscription) => sum + Number(subscription.amount || 0), 0);
+    const totalRevenue = bookingRevenue + subscriptionRevenue;
+    const activeUsers = new Set(
+      [...bookings, ...subscriptions]
+        .filter(item => item.status !== 'cancelled')
+        .map(item => item.userEmail || item.userName || '')
+        .filter(Boolean)
+    ).size;
+
+    const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+    const operatingHours = Math.max(1, settings.operatingHours.endHour - settings.operatingHours.startHour + 1);
+    const totalCapacity = daysInMonth * settings.courts.length * operatingHours;
+    const bookedSlots = currentMonthBookings.reduce((sum, booking) => sum + (booking.slots?.length || 0), 0);
+    const avgUtilization = totalCapacity > 0 ? Math.round((bookedSlots / totalCapacity) * 100) : 0;
+
+    return {
+      totalBookings,
+      totalRevenue,
+      activeUsers,
+      avgUtilization,
+      bookingRevenue,
+      subscriptionRevenue,
+    };
+  }, [activeBookings.length, bookings, currentMonthBookings, currentMonthKey, currentMonthSubscriptions, settings.courts.length, settings.operatingHours.endHour, settings.operatingHours.startHour, subscriptions]);
+
+  const revenueChartData = useMemo(() => {
+    const monthMap = new Map<string, number>();
+
+    const sourceRecords = [
+      ...activeBookings.map(booking => ({ dateKey: (booking.createdAt || booking.date || '').slice(0, 7), amount: Number(booking.totalAmount || 0) })),
+      ...subscriptions
+        .filter(subscription => subscription.status !== 'cancelled')
+        .map(subscription => ({ dateKey: (subscription.createdAt || subscription.startDate || '').slice(0, 7), amount: Number(subscription.amount || 0) })),
+    ];
+
+    for (const record of sourceRecords) {
+      if (!record.dateKey) {
+        continue;
+      }
+
+      monthMap.set(record.dateKey, (monthMap.get(record.dateKey) || 0) + record.amount);
+    }
+
+    const months = Array.from({ length: 4 }, (_, index) => {
+      const date = new Date();
+      date.setMonth(date.getMonth() - (3 - index));
+      const key = format(date, 'yyyy-MM');
+      return {
+        month: format(date, 'MMM'),
+        revenue: monthMap.get(key) || 0,
+      };
+    });
+
+    return months;
+  }, [activeBookings, subscriptions]);
+
+  const bookingStatusData = useMemo(() => {
+    const upcoming = bookings.filter(booking => booking.status === 'upcoming').length;
+    const completed = bookings.filter(booking => booking.status === 'completed').length;
+    const cancelled = bookings.filter(booking => booking.status === 'cancelled').length;
+
+    return [
+      { name: 'Upcoming', value: upcoming, color: '#3b82f6' },
+      { name: 'Completed', value: completed, color: '#10b981' },
+      { name: 'Cancelled', value: cancelled, color: '#ef4444' },
+    ];
+  }, [bookings]);
 
   const stats = [
     {
       label: 'Total Bookings',
-      value: '156',
-      change: '+12%',
+      value: liveStats.totalBookings.toLocaleString(),
+      change: 'Live',
       icon: <Calendar className="w-6 h-6" />,
       color: 'from-blue-500 to-blue-600',
     },
     {
       label: 'Revenue (This Month)',
-      value: '₹61,000',
-      change: '+18%',
+      value: `₹${liveStats.totalRevenue.toLocaleString()}`,
+      change: monthLabel,
       icon: <DollarSign className="w-6 h-6" />,
       color: 'from-green-500 to-green-600',
     },
     {
       label: 'Active Users',
-      value: '89',
-      change: '+5%',
+      value: liveStats.activeUsers.toLocaleString(),
+      change: 'Live',
       icon: <Users className="w-6 h-6" />,
       color: 'from-purple-500 to-purple-600',
     },
     {
       label: 'Avg. Utilization',
-      value: '73%',
-      change: '+8%',
+      value: `${liveStats.avgUtilization}%`,
+      change: 'Current month',
       icon: <TrendingUp className="w-6 h-6" />,
       color: 'from-orange-500 to-orange-600',
     },
@@ -78,13 +264,13 @@ export const AdminDashboard = () => {
           {/* Revenue Chart */}
           <GlassCard className="p-4 md:p-6 lg:col-span-2">
             <h2 className="text-lg md:text-xl font-semibold mb-4 md:mb-6">Revenue Overview</h2>
-            <RevenueChart />
+            <RevenueChart data={revenueChartData} />
           </GlassCard>
 
           {/* Booking Status Pie Chart */}
           <GlassCard className="p-4 md:p-6">
             <h2 className="text-lg md:text-xl font-semibold mb-4 md:mb-6">Booking Status</h2>
-            <BookingStatusChart />
+            <BookingStatusChart data={bookingStatusData} />
           </GlassCard>
 
           {/* Upcoming Bookings */}
@@ -167,18 +353,18 @@ export const AdminDashboard = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border border-green-100">
                   <p className="text-green-600 text-sm font-medium mb-2">Total Revenue</p>
-                  <p className="text-3xl font-bold text-gray-800">₹61,000</p>
-                  <p className="text-xs text-green-600 mt-2">↑ 18% from last month</p>
+                  <p className="text-3xl font-bold text-gray-800">₹{liveStats.totalRevenue.toLocaleString()}</p>
+                  <p className="text-xs text-green-600 mt-2">Live current month value</p>
                 </div>
                 <div className="bg-gradient-to-br from-blue-50 to-cyan-50 p-6 rounded-xl border border-blue-100">
                   <p className="text-blue-600 text-sm font-medium mb-2">Total Bookings</p>
-                  <p className="text-3xl font-bold text-gray-800">156</p>
-                  <p className="text-xs text-blue-600 mt-2">↑ 12% from last month</p>
+                  <p className="text-3xl font-bold text-gray-800">{liveStats.totalBookings.toLocaleString()}</p>
+                  <p className="text-xs text-blue-600 mt-2">Live database count</p>
                 </div>
                 <div className="bg-gradient-to-br from-purple-50 to-violet-50 p-6 rounded-xl border border-purple-100">
                   <p className="text-purple-600 text-sm font-medium mb-2">Avg. Booking Value</p>
-                  <p className="text-3xl font-bold text-gray-800">₹391</p>
-                  <p className="text-xs text-purple-600 mt-2">↑ 5% from last month</p>
+                  <p className="text-3xl font-bold text-gray-800">₹{liveStats.totalBookings > 0 ? Math.round(liveStats.totalRevenue / liveStats.totalBookings) : 0}</p>
+                  <p className="text-xs text-purple-600 mt-2">Calculated from live bookings</p>
                 </div>
               </div>
 
@@ -187,9 +373,8 @@ export const AdminDashboard = () => {
                 <h3 className="text-lg font-semibold text-gray-800 mb-4">Revenue Breakdown</h3>
                 <div className="space-y-3">
                   {[
-                    { label: 'Court Bookings', amount: 45000, percentage: 73.8, color: 'bg-blue-500' },
-                    { label: 'Subscriptions', amount: 12000, percentage: 19.7, color: 'bg-green-500' },
-                    { label: 'Tournaments', amount: 4000, percentage: 6.5, color: 'bg-purple-500' },
+                    { label: 'Court Bookings', amount: liveStats.bookingRevenue, percentage: liveStats.totalRevenue > 0 ? (liveStats.bookingRevenue / liveStats.totalRevenue) * 100 : 0, color: 'bg-blue-500' },
+                    { label: 'Subscriptions', amount: liveStats.subscriptionRevenue, percentage: liveStats.totalRevenue > 0 ? (liveStats.subscriptionRevenue / liveStats.totalRevenue) * 100 : 0, color: 'bg-green-500' },
                   ].map((item, index) => (
                     <div key={index}>
                       <div className="flex items-center justify-between mb-2">
@@ -208,12 +393,7 @@ export const AdminDashboard = () => {
               <div className="bg-gray-50 p-6 rounded-xl">
                 <h3 className="text-lg font-semibold text-gray-800 mb-4">Monthly Comparison</h3>
                 <div className="space-y-2">
-                  {[
-                    { month: 'January 2026', revenue: 48000 },
-                    { month: 'February 2026', revenue: 52000 },
-                    { month: 'March 2026', revenue: 51700 },
-                    { month: 'April 2026', revenue: 61000 },
-                  ].map((item, index) => (
+                  {revenueChartData.map((item, index) => (
                     <div key={index} className="flex items-center justify-between p-3 bg-white rounded-lg">
                       <span className="text-sm font-medium text-gray-700">{item.month}</span>
                       <span className="text-sm font-semibold text-green-600">₹{item.revenue.toLocaleString()}</span>
@@ -250,57 +430,59 @@ export const AdminDashboard = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-gradient-to-br from-blue-50 to-cyan-50 p-6 rounded-xl border border-blue-100">
                   <p className="text-blue-600 text-sm font-medium mb-2">Total Users</p>
-                  <p className="text-3xl font-bold text-gray-800">89</p>
-                  <p className="text-xs text-blue-600 mt-2">↑ 5% this month</p>
+                  <p className="text-3xl font-bold text-gray-800">{users.length.toLocaleString()}</p>
+                  <p className="text-xs text-blue-600 mt-2">Live users from database</p>
                 </div>
                 <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border border-green-100">
                   <p className="text-green-600 text-sm font-medium mb-2">Active Users</p>
-                  <p className="text-3xl font-bold text-gray-800">72</p>
-                  <p className="text-xs text-green-600 mt-2">81% of total</p>
+                  <p className="text-3xl font-bold text-gray-800">{users.filter(user => user.status !== 'Inactive').length.toLocaleString()}</p>
+                  <p className="text-xs text-green-600 mt-2">Registered and active users</p>
                 </div>
                 <div className="bg-gradient-to-br from-purple-50 to-violet-50 p-6 rounded-xl border border-purple-100">
                   <p className="text-purple-600 text-sm font-medium mb-2">Subscribers</p>
-                  <p className="text-3xl font-bold text-gray-800">24</p>
-                  <p className="text-xs text-purple-600 mt-2">27% of total</p>
+                  <p className="text-3xl font-bold text-gray-800">{users.filter(user => user.status === 'Subscriber').length}</p>
+                  <p className="text-xs text-purple-600 mt-2">Users with active subscriptions</p>
                 </div>
               </div>
 
               {/* User List */}
               <div className="bg-gray-50 p-6 rounded-xl">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Recent Users</h3>
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">All Users</h3>
                 <div className="space-y-2">
-                  {[
-                    { name: 'John Doe', email: 'john.doe@example.com', status: 'Active', bookings: 12, joined: 'Jan 2026' },
-                    { name: 'Jane Smith', email: 'jane.smith@example.com', status: 'Active', bookings: 8, joined: 'Feb 2026' },
-                    { name: 'Mike Johnson', email: 'mike.j@example.com', status: 'Subscriber', bookings: 24, joined: 'Dec 2025' },
-                    { name: 'Sarah Williams', email: 'sarah.w@example.com', status: 'Active', bookings: 6, joined: 'Mar 2026' },
-                    { name: 'Tom Brown', email: 'tom.brown@example.com', status: 'Inactive', bookings: 2, joined: 'Nov 2025' },
-                  ].map((user, index) => (
-                    <div key={index} className="flex items-center justify-between p-4 bg-white rounded-lg hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-4 flex-1">
-                        <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-cyan-600 rounded-full flex items-center justify-center text-white font-semibold">
-                          {user.name.split(' ').map(n => n[0]).join('')}
+                  {usersLoading ? (
+                    <div className="p-4 bg-white rounded-lg text-sm text-gray-600">Loading users...</div>
+                  ) : users.length === 0 ? (
+                    <div className="p-4 bg-white rounded-lg text-sm text-gray-600">No users found in the database.</div>
+                  ) : (
+                    users.map((user) => (
+                      <div key={user.id} className="flex items-center justify-between p-4 bg-white rounded-lg hover:shadow-md transition-shadow">
+                        <div className="flex items-center gap-4 flex-1">
+                          <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-cyan-600 rounded-full flex items-center justify-center text-white font-semibold">
+                            {user.name.split(' ').map(n => n[0]).join('')}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-gray-800 truncate">{user.name}</p>
+                            <p className="text-sm text-gray-600 truncate">{user.email}</p>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-gray-800 truncate">{user.name}</p>
-                          <p className="text-sm text-gray-600 truncate">{user.email}</p>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right hidden md:block">
+                            <p className="text-xs text-gray-500">Bookings</p>
+                            <p className="font-semibold text-gray-800">{user.bookings}</p>
+                            <p className="text-xs text-gray-500 mt-1">Joined {format(new Date(user.joinedAt), 'MMM yyyy')}</p>
+                          </div>
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                            user.status === 'Admin' ? 'bg-red-100 text-red-700' :
+                            user.status === 'Subscriber' ? 'bg-purple-100 text-purple-700' :
+                            user.status === 'Active' ? 'bg-green-100 text-green-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {user.status}
+                          </span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right hidden md:block">
-                          <p className="text-xs text-gray-500">Bookings</p>
-                          <p className="font-semibold text-gray-800">{user.bookings}</p>
-                        </div>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          user.status === 'Active' ? 'bg-green-100 text-green-700' :
-                          user.status === 'Subscriber' ? 'bg-purple-100 text-purple-700' :
-                          'bg-gray-100 text-gray-700'
-                        }`}>
-                          {user.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { MapPin, Phone, Mail, Star, Clock, ChevronLeft, ChevronRight, LogIn, UserPlus } from 'lucide-react';
+import { MapPin, Phone, Mail, Star, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Navbar } from '../../components/Navbar';
 import { GlassCard } from '../../components/GlassCard';
 import { Button } from '../../components/Button';
@@ -25,19 +25,22 @@ export const UserHome = () => {
   const [currentImage, setCurrentImage] = useState(0);
   const [feedback, setFeedback] = useState('');
   const [rating, setRating] = useState(0);
-  const { user, login, register } = useAuth();
   const { appSettings } = useBooking();
+  const { user } = useAuth();
 
-  const venueName = typeof appSettings.landing?.venueName === 'string' ? appSettings.landing.venueName : 'thecourtyard Sports Arena';
-  const venueAddress = typeof appSettings.landing?.venueAddress === 'string'
-    ? appSettings.landing.venueAddress
+  const landing = appSettings.landing as Record<string, unknown>;
+  const venueName = typeof landing.venueName === 'string' ? landing.venueName : 'thecourtyard Sports Arena';
+  const venueAddress = typeof landing.venueAddress === 'string'
+    ? landing.venueAddress
     : '123 Sports Complex Road, Sector 21, Bangalore, Karnataka 560001';
-  const venuePhone = typeof appSettings.landing?.venuePhone === 'string' ? appSettings.landing.venuePhone : '+91 98765 43210';
-  const venueEmail = typeof appSettings.landing?.venueEmail === 'string' ? appSettings.landing.venueEmail : 'info@courtyard.com';
-  const venueHours = typeof appSettings.landing?.venueOperatingHoursText === 'string'
-    ? appSettings.landing.venueOperatingHoursText
+  const venuePhone = typeof landing.venuePhone === 'string' ? landing.venuePhone : '+91 98765 43210';
+  const venueEmail = typeof landing.venueEmail === 'string' ? landing.venueEmail : 'info@courtyard.com';
+  const venueHours = typeof landing.venueOperatingHoursText === 'string'
+    ? landing.venueOperatingHoursText
     : '5:00 AM - 11:00 PM (All Days)';
-  const ratingValue = typeof appSettings.landing?.venueRating === 'number' ? appSettings.landing.venueRating : 4.7;
+  const ratingValue = typeof landing.venueRating === 'number' ? landing.venueRating : 4.7;
+  const availableCourts = appSettings.courts.length;
+  const priceRange = `₹${appSettings.pricing.offPeak} - ₹${appSettings.pricing.peak}/hr`;
 
   const nextImage = () => {
     setCurrentImage((prev) => (prev + 1) % courtImages.length);
@@ -211,11 +214,11 @@ export const UserHome = () => {
               <div className="space-y-4">
                 <div className="flex items-center justify-between py-2 border-b border-gray-100">
                   <span className="text-gray-600">Available Courts</span>
-                  <span className="font-semibold text-gray-800">{appSettings.courts.length} Courts</span>
+                  <span className="font-semibold text-gray-800">{availableCourts} Courts</span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-gray-100">
                   <span className="text-gray-600">Price Range</span>
-                  <span className="font-semibold text-gray-800">₹{appSettings.pricing.offPeak} - ₹{appSettings.pricing.peak}/hr</span>
+                  <span className="font-semibold text-gray-800">{priceRange}</span>
                 </div>
                 <div className="flex items-center justify-between py-2">
                   <span className="text-gray-600">Time Slots</span>

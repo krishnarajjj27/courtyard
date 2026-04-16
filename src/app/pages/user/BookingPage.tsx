@@ -49,7 +49,7 @@ const generateTimeSlots = (
 
 export const BookingPage = () => {
   const navigate = useNavigate();
-  const { selectedSlots, addSlot, removeSlot, isSlotBooked, appSettings } = useBooking();
+  const { appSettings, selectedSlots, addSlot, removeSlot, isSlotBooked } = useBooking();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedCourt, setSelectedCourt] = useState(1);
   const { user } = useAuth();
@@ -398,7 +398,7 @@ export const BookingPage = () => {
 
                 <div className="space-y-3">
                   <button
-                    onClick={() => navigate('/user/login')}
+                    onClick={() => navigate('/login')}
                     className="w-full px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl font-medium hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-md flex items-center justify-center gap-2"
                   >
                     <LogIn className="w-5 h-5" />

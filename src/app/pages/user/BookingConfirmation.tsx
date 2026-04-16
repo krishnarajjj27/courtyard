@@ -5,18 +5,14 @@ import { Navbar } from '../../components/Navbar';
 import { GlassCard } from '../../components/GlassCard';
 import { Button } from '../../components/Button';
 import { useBooking } from '../../context/BookingContext';
-import { useAuth } from '../../context/AuthContext';
 import { format } from 'date-fns';
 
 export const BookingConfirmation = () => {
   const navigate = useNavigate();
   const { bookings } = useBooking();
-  const { user } = useAuth();
   
-  // Get the most recent booking for the current user
-  const latestBooking = user?.email
-    ? bookings.find(booking => booking.userEmail === user.email)
-    : bookings[0];
+  // Get the most recent booking
+  const latestBooking = bookings[0];
 
   if (!latestBooking) {
     navigate('/user/home');

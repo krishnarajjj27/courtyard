@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { useAuth } from './AuthContext';
 
 export interface TimeSlot {
   id: string;
@@ -43,27 +42,16 @@ export interface Subscription {
   createdAt: string;
 }
 
-export interface AppSettings {
-  pricing: {
-    offPeak: number;
-    peak: number;
-    subscription: number;
-  };
-  courts: string[];
-  operatingHours: {
-    startHour: number;
-    endHour: number;
-  };
-  landing?: Record<string, string | number>;
-}
-
 interface BookingContextType {
+  appSettings: {
+    pricing: { offPeak: number; peak: number; subscription: number };
+    courts: string[];
+    operatingHours: { startHour: number; endHour: number };
+    landing: Record<string, unknown>;
+  };
   selectedSlots: TimeSlot[];
   bookings: Booking[];
   subscriptions: Subscription[];
-  appSettings: AppSettings;
-  refreshAppSettings: () => Promise<void>;
-  updateAppSettings: (payload: Partial<AppSettings>) => Promise<AppSettings>;
   addSlot: (slot: TimeSlot) => void;
   removeSlot: (slotId: string) => void;
   clearSlots: () => void;
@@ -78,53 +66,12 @@ interface BookingContextType {
 const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '/api';
-const SETTINGS_SYNC_KEY = 'tcy.settings.updatedAt';
-const SETTINGS_REFRESH_INTERVAL_MS = 15000;
 
-const DEFAULT_APP_SETTINGS: AppSettings = {
-  pricing: {
-    offPeak: 500,
-    peak: 800,
-    subscription: 2500,
-  },
+const DEFAULT_APP_SETTINGS = {
+  pricing: { offPeak: 500, peak: 800, subscription: 2500 },
   courts: ['Court 1', 'Court 2', 'Court 3'],
-  operatingHours: {
-    startHour: 5,
-    endHour: 22,
-  },
+  operatingHours: { startHour: 5, endHour: 22 },
   landing: {},
-};
-
-const readStoredAccessToken = async () => {
-  if (!supabase) {
-    return null;
-  }
-
-  const { data, error } = await supabase.auth.getSession();
-  if (!error && data.session?.access_token) {
-    return data.session.access_token;
-  }
-
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  const authTokenKey = Object.keys(window.localStorage).find(key => key.endsWith('-auth-token'));
-  if (!authTokenKey) {
-    return null;
-  }
-
-  const rawSession = window.localStorage.getItem(authTokenKey);
-  if (!rawSession) {
-    return null;
-  }
-
-  try {
-    const parsedSession = JSON.parse(rawSession) as { access_token?: string };
-    return parsedSession.access_token || null;
-  } catch {
-    return null;
-  }
 };
 
 const toDateKey = (date: Date) => {
@@ -189,106 +136,28 @@ const getDateRange = (startDate: string, endDate: string) => {
 };
 
 export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
   const [selectedSlots, setSelectedSlots] = useState<TimeSlot[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
+  const [appSettings, setAppSettings] = useState(DEFAULT_APP_SETTINGS);
 
   const getAccessToken = async () => {
-    const token = await readStoredAccessToken();
+    if (!supabase) {
+      throw new Error('Supabase is not configured');
+    }
 
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
     if (!token) {
       throw new Error('Please sign in to continue');
     }
     return token;
   };
 
-  const refreshAppSettings = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/settings`);
-      if (!response.ok) {
-        throw new Error('Unable to fetch app settings');
-      }
-
-      const payload = await response.json();
-      setAppSettings({
-        pricing: {
-          offPeak: Number(payload?.pricing?.offPeak ?? DEFAULT_APP_SETTINGS.pricing.offPeak),
-          peak: Number(payload?.pricing?.peak ?? DEFAULT_APP_SETTINGS.pricing.peak),
-          subscription: Number(payload?.pricing?.subscription ?? DEFAULT_APP_SETTINGS.pricing.subscription),
-        },
-        courts: Array.isArray(payload?.courts) && payload.courts.length ? payload.courts : DEFAULT_APP_SETTINGS.courts,
-        operatingHours: {
-          startHour: Number(payload?.operatingHours?.startHour ?? DEFAULT_APP_SETTINGS.operatingHours.startHour),
-          endHour: Number(payload?.operatingHours?.endHour ?? DEFAULT_APP_SETTINGS.operatingHours.endHour),
-        },
-        landing: payload?.landing && typeof payload.landing === 'object' ? payload.landing : {},
-      });
-    } catch {
-      setAppSettings(DEFAULT_APP_SETTINGS);
-    }
-  };
-
-  const updateAppSettings = async (payload: Partial<AppSettings>) => {
-    const accessToken = await getAccessToken();
-    const response = await fetch(`${API_BASE_URL}/admin/settings`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const rawBody = await response.text();
-    let body: Record<string, unknown> | null = null;
-
-    try {
-      body = rawBody ? JSON.parse(rawBody) as Record<string, unknown> : null;
-    } catch {
-      body = null;
-    }
-
-    if (!response.ok) {
-      const errorPayload = body?.error as { message?: string } | undefined;
-
-      if (errorPayload?.message) {
-        throw new Error(errorPayload.message);
-      }
-
-      if (response.status >= 500) {
-        throw new Error('Backend API is unavailable. Please start the server and try again.');
-      }
-
-      throw new Error('Unable to update settings');
-    }
-
-    const nextSettings: AppSettings = {
-      pricing: {
-        offPeak: Number(body?.pricing?.offPeak ?? DEFAULT_APP_SETTINGS.pricing.offPeak),
-        peak: Number(body?.pricing?.peak ?? DEFAULT_APP_SETTINGS.pricing.peak),
-        subscription: Number(body?.pricing?.subscription ?? DEFAULT_APP_SETTINGS.pricing.subscription),
-      },
-      courts: Array.isArray(body?.courts) && body.courts.length ? body.courts : DEFAULT_APP_SETTINGS.courts,
-      operatingHours: {
-        startHour: Number(body?.operatingHours?.startHour ?? DEFAULT_APP_SETTINGS.operatingHours.startHour),
-        endHour: Number(body?.operatingHours?.endHour ?? DEFAULT_APP_SETTINGS.operatingHours.endHour),
-      },
-      landing: body?.landing && typeof body.landing === 'object' ? body.landing : {},
-    };
-
-    setAppSettings(nextSettings);
-    window.localStorage.setItem(SETTINGS_SYNC_KEY, String(Date.now()));
-    return nextSettings;
-  };
-
   const fetchData = async () => {
     try {
       const accessToken = await getAccessToken();
-      const headers = {
-        Authorization: `Bearer ${accessToken}`,
-      };
+      const headers = { Authorization: `Bearer ${accessToken}` };
 
       const [bookingsResponse, subscriptionsResponse] = await Promise.all([
         fetch(`${API_BASE_URL}/bookings`, { headers }),
@@ -310,53 +179,83 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   };
 
-  useEffect(() => {
-    void refreshAppSettings();
-  }, []);
-
-  useEffect(() => {
-    const refresh = () => {
-      void refreshAppSettings();
-    };
-
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === SETTINGS_SYNC_KEY) {
-        refresh();
+  const fetchSettings = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/settings`);
+      if (!response.ok) {
+        return;
       }
-    };
 
-    const onFocus = () => {
-      refresh();
-    };
+      const payload = await response.json();
+      const settings = payload?.settings;
 
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        refresh();
+      if (!settings) {
+        return;
       }
-    };
 
-    const interval = window.setInterval(refresh, SETTINGS_REFRESH_INTERVAL_MS);
-    window.addEventListener('storage', onStorage);
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisibilityChange);
-
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, []);
+      setAppSettings({
+        pricing: settings.pricing || DEFAULT_APP_SETTINGS.pricing,
+        courts: Array.isArray(settings.courts) && settings.courts.length ? settings.courts : DEFAULT_APP_SETTINGS.courts,
+        operatingHours: settings.operatingHours || DEFAULT_APP_SETTINGS.operatingHours,
+        landing: settings.landing || DEFAULT_APP_SETTINGS.landing,
+      });
+    } catch {
+      setAppSettings(DEFAULT_APP_SETTINGS);
+    }
+  };
 
   useEffect(() => {
-    if (!user) {
-      setBookings([]);
-      setSubscriptions([]);
+    if (!supabase) {
       return;
     }
 
-    void fetchData();
-  }, [user]);
+    let active = true;
+
+    const syncBookings = async () => {
+      if (!active) {
+        return;
+      }
+
+      void fetchSettings();
+      await fetchData();
+    };
+
+    void syncBookings();
+
+    const pollTimer = window.setInterval(() => {
+      void syncBookings();
+    }, 20000);
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) {
+        return;
+      }
+
+      if (!session?.user) {
+        setBookings([]);
+        setSubscriptions([]);
+        void fetchSettings();
+        return;
+      }
+
+      void syncBookings();
+    });
+
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        void syncBookings();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      active = false;
+      window.clearInterval(pollTimer);
+      window.removeEventListener('focus', handleFocus);
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const isSlotBooked = (date: string, court: number, time: string) => {
     const normalizedTime = normalizeTimeSlot(time);
@@ -525,18 +424,18 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const getTotalAmount = () => {
-    return selectedSlots.reduce((sum, slot) => sum + slot.price, 0);
+    const subtotal = selectedSlots.reduce((sum, slot) => sum + slot.price, 0);
+    const gst = subtotal * 0.18;
+    return subtotal + gst;
   };
 
   return (
     <BookingContext.Provider
       value={{
+        appSettings,
         selectedSlots,
         bookings,
         subscriptions,
-        appSettings,
-        refreshAppSettings,
-        updateAppSettings,
         addSlot,
         removeSlot,
         clearSlots,

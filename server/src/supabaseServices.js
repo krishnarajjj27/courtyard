@@ -663,6 +663,77 @@ async function getRevenueSeries(month) {
   return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+async function listUsers() {
+  const supabase = getClient();
+  const { data: authUsers, error: authError } = await supabase.auth.admin.listUsers();
+
+  if (authError) {
+    throw new ApiError(500, authError.message);
+  }
+
+  const users = authUsers?.users || [];
+  if (!users.length) {
+    return [];
+  }
+
+  const userIds = users.map(user => user.id);
+  const emails = users.map(user => user.email).filter(Boolean);
+
+  const [profilesResponse, bookingsResponse, subscriptionsResponse] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('id,app_role,name,email,phone,created_at,updated_at')
+      .in('id', userIds),
+    userIds.length
+      ? supabase.from('bookings').select('user_id,user_email,status,created_at').in('user_id', userIds)
+      : Promise.resolve({ data: [], error: null }),
+    userIds.length
+      ? supabase.from('subscriptions').select('user_id,user_email,status,created_at').in('user_id', userIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  for (const response of [profilesResponse, bookingsResponse, subscriptionsResponse]) {
+    if (response.error) {
+      throw new ApiError(500, response.error.message);
+    }
+  }
+
+  const profiles = profilesResponse.data || [];
+  const bookings = bookingsResponse.data || [];
+  const subscriptions = subscriptionsResponse.data || [];
+
+  const byIdentity = new Map();
+
+  for (const user of users) {
+    const profile = profiles.find(item => item.id === user.id || item.email === user.email) || null;
+    const bookedCount = bookings.filter(item => item.user_id === user.id || item.user_email === user.email).length;
+    const activeSubscriptionCount = subscriptions.filter(item => (item.user_id === user.id || item.user_email === user.email) && item.status === 'active').length;
+
+    const status = user.role === 'admin'
+      ? 'Admin'
+      : activeSubscriptionCount > 0
+        ? 'Subscriber'
+        : bookedCount > 0
+          ? 'Active'
+          : 'Inactive';
+
+    byIdentity.set(user.id, {
+      id: user.id,
+      name: profile?.name || user.user_metadata?.name || user.email || 'User',
+      email: profile?.email || user.email || '',
+      phone: profile?.phone || user.phone || null,
+      role: profile?.app_role || user.user_metadata?.app_role || 'user',
+      status,
+      bookings: bookedCount,
+      subscriptions: activeSubscriptionCount,
+      joinedAt: profile?.created_at || user.created_at,
+      updatedAt: profile?.updated_at || user.updated_at,
+    });
+  }
+
+  return Array.from(byIdentity.values()).sort((a, b) => new Date(b.joinedAt).getTime() - new Date(a.joinedAt).getTime());
+}
+
 module.exports = {
   getAppSettings,
   updateAppSettings,
@@ -677,4 +748,5 @@ module.exports = {
   cancelSubscription,
   getDashboardStats,
   getRevenueSeries,
+  listUsers,
 };

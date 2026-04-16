@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { DollarSign, Save, Image, MapPin, Phone, Mail, Star, Clock, Layout, Plus, Trash2, Eye, Settings as SettingsIcon, Palette } from 'lucide-react';
 import { Navbar } from '../../components/Navbar';
 import { GlassCard } from '../../components/GlassCard';
 import { Button } from '../../components/Button';
 import { Input } from '../../components/Input';
 import { useLandingPage } from '../../context/LandingPageContext';
-import { useBooking } from '../../context/BookingContext';
 import { Calendar, CreditCard, Shield, Zap, Users, Award } from 'lucide-react';
 import { showSuccessToast } from '../../utils/notificationHelpers';
+import { supabase } from '../../lib/supabaseClient';
 
 const iconOptions = [
   { value: 'Calendar', label: 'Calendar', Icon: Calendar },
@@ -22,18 +23,15 @@ const iconOptions = [
 
 export const AdminSettings = () => {
   const [activeTab, setActiveTab] = useState<'general' | 'landing'>('general');
+  const navigate = useNavigate();
   const { content, updateContent } = useLandingPage();
-  const { appSettings, refreshAppSettings, updateAppSettings } = useBooking();
   const [landingFormData, setLandingFormData] = useState(content);
   const [showPreview, setShowPreview] = useState(false);
-  const [savingPricing, setSavingPricing] = useState(false);
-  const [savingDetails, setSavingDetails] = useState(false);
-  const [pricingDirty, setPricingDirty] = useState(false);
 
   const [pricing, setPricing] = useState({
-    weekdayPrice: '500',
-    weekendPrice: '800',
-    monthlySubscription: '2500',
+    weekdayPrice: 500,
+    weekendPrice: 800,
+    monthlySubscription: 2500,
   });
 
   const [courtDetails, setCourtDetails] = useState({
@@ -48,99 +46,71 @@ export const AdminSettings = () => {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    if (pricingDirty) {
-      return;
+    setLandingFormData(content);
+  }, [content]);
+
+  const saveSettings = async (payload: Record<string, unknown>) => {
+    if (!supabase) {
+      throw new Error('Supabase is not configured');
     }
 
-    setPricing({
-      weekdayPrice: String(appSettings.pricing.offPeak),
-      weekendPrice: String(appSettings.pricing.peak),
-      monthlySubscription: String(appSettings.pricing.subscription),
+    const { data } = await supabase.auth.getSession();
+    const accessToken = data.session?.access_token;
+
+    if (!accessToken) {
+      throw new Error('Please sign in again to save settings');
+    }
+
+    const response = await fetch('/api/settings', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
     });
 
-    setCourtDetails(prev => ({
-      ...prev,
-      name: typeof appSettings.landing?.venueName === 'string' ? appSettings.landing.venueName : prev.name,
-      address: typeof appSettings.landing?.venueAddress === 'string' ? appSettings.landing.venueAddress : prev.address,
-      phone: typeof appSettings.landing?.venuePhone === 'string' ? appSettings.landing.venuePhone : prev.phone,
-      email: typeof appSettings.landing?.venueEmail === 'string' ? appSettings.landing.venueEmail : prev.email,
-      operatingHours: typeof appSettings.landing?.venueOperatingHoursText === 'string'
-        ? appSettings.landing.venueOperatingHoursText
-        : prev.operatingHours,
-      rating: typeof appSettings.landing?.venueRating === 'number' ? appSettings.landing.venueRating : prev.rating,
-    }));
-  }, [appSettings, pricingDirty]);
-
-  useEffect(() => {
-    void refreshAppSettings();
-  }, []);
-
-  const handlePricingChange = (field: 'weekdayPrice' | 'weekendPrice' | 'monthlySubscription', value: string) => {
-    if (value === '' || /^\d+$/.test(value)) {
-      setPricingDirty(true);
-      setPricing(prev => ({ ...prev, [field]: value }));
+    const result = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(result?.error?.message || 'Unable to save settings');
     }
+
+    return result;
   };
 
   const handleSavePricing = async () => {
-    try {
-      const offPeak = Number(pricing.weekdayPrice);
-      const peak = Number(pricing.weekendPrice);
-      const subscription = Number(pricing.monthlySubscription);
+    await saveSettings({
+      pricing: {
+        offPeak: pricing.weekdayPrice,
+        peak: pricing.weekendPrice,
+        subscription: pricing.monthlySubscription,
+      },
+    });
 
-      if (!offPeak || !peak || !subscription) {
-        alert('Please enter valid prices before saving.');
-        return;
-      }
+    updateContent({
+      heroDescription: landingFormData.heroDescription,
+    });
 
-      setSavingPricing(true);
-      await updateAppSettings({
-        pricing: {
-          offPeak,
-          peak,
-          subscription,
-        },
-      });
-
-      setPricing({
-        weekdayPrice: String(offPeak),
-        weekendPrice: String(peak),
-        monthlySubscription: String(subscription),
-      });
-      setPricingDirty(false);
-
-      setSaved(true);
-      showSuccessToast('Pricing updated successfully!');
-      setTimeout(() => setSaved(false), 2000);
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'Unable to save pricing');
-    } finally {
-      setSavingPricing(false);
-    }
+    setSaved(true);
+    showSuccessToast('Pricing updated successfully!');
+    setTimeout(() => setSaved(false), 2000);
   };
 
   const handleSaveDetails = async () => {
-    try {
-      setSavingDetails(true);
-      await updateAppSettings({
-        landing: {
-          venueName: courtDetails.name,
-          venueAddress: courtDetails.address,
-          venuePhone: courtDetails.phone,
-          venueEmail: courtDetails.email,
-          venueOperatingHoursText: courtDetails.operatingHours,
-          venueRating: courtDetails.rating,
-        },
-      });
+    await saveSettings({
+      landing: {
+        venueName: courtDetails.name,
+        venueAddress: courtDetails.address,
+        venuePhone: courtDetails.phone,
+        venueEmail: courtDetails.email,
+        venueOperatingHoursText: courtDetails.operatingHours,
+        venueRating: courtDetails.rating,
+      },
+    });
 
-      setSaved(true);
-      showSuccessToast('Court details updated successfully!');
-      setTimeout(() => setSaved(false), 2000);
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'Unable to save court details');
-    } finally {
-      setSavingDetails(false);
-    }
+    setSaved(true);
+    showSuccessToast('Court details updated successfully!');
+    setTimeout(() => setSaved(false), 2000);
   };
 
   // Landing page handlers
@@ -254,7 +224,7 @@ export const AdminSettings = () => {
                     <input
                       type="number"
                       value={pricing.weekdayPrice}
-                      onChange={(e) => handlePricingChange('weekdayPrice', e.target.value)}
+                      onChange={(e) => setPricing({ ...pricing, weekdayPrice: Number(e.target.value) })}
                       className="w-full pl-8 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#10b981] focus:border-transparent"
                     />
                   </div>
@@ -270,7 +240,7 @@ export const AdminSettings = () => {
                     <input
                       type="number"
                       value={pricing.weekendPrice}
-                      onChange={(e) => handlePricingChange('weekendPrice', e.target.value)}
+                      onChange={(e) => setPricing({ ...pricing, weekendPrice: Number(e.target.value) })}
                       className="w-full pl-8 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#10b981] focus:border-transparent"
                     />
                   </div>
@@ -286,7 +256,7 @@ export const AdminSettings = () => {
                     <input
                       type="number"
                       value={pricing.monthlySubscription}
-                      onChange={(e) => handlePricingChange('monthlySubscription', e.target.value)}
+                      onChange={(e) => setPricing({ ...pricing, monthlySubscription: Number(e.target.value) })}
                       className="w-full pl-8 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#10b981] focus:border-transparent"
                     />
                   </div>
@@ -297,7 +267,6 @@ export const AdminSettings = () => {
                   variant="primary"
                   className="w-full"
                   onClick={handleSavePricing}
-                  loading={savingPricing}
                 >
                   <Save className="w-5 h-5" />
                   {saved ? 'Saved!' : 'Save Pricing'}
@@ -360,7 +329,6 @@ export const AdminSettings = () => {
                   variant="primary"
                   className="w-full"
                   onClick={handleSaveDetails}
-                  loading={savingDetails}
                 >
                   <Save className="w-5 h-5" />
                   {saved ? 'Saved!' : 'Save Details'}
@@ -380,28 +348,31 @@ export const AdminSettings = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {[1, 2, 3, 4, 5, 6].map((index) => (
-                  <div key={index} className="relative group">
-                    <div className="aspect-video bg-gray-200 rounded-xl overflow-hidden">
-                      <img
-                        src={`https://images.unsplash.com/photo-1766675122854-28fc70f50132?w=400&h=300&fit=crop`}
-                        alt={`Court ${index}`}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center gap-2">
-                      <Button size="sm" variant="secondary">Edit</Button>
-                      <Button size="sm" variant="danger">Delete</Button>
-                    </div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4">
+                  <div>
+                    <p className="font-medium text-gray-800">Open gallery manager</p>
+                    <p className="text-sm text-gray-600">Add, edit, and delete court images on a dedicated page.</p>
                   </div>
-                ))}
-                
-                {/* Add New Image */}
-                <button className="aspect-video bg-gray-100 rounded-xl border-2 border-dashed border-gray-300 hover:border-[#10b981] hover:bg-emerald-50 transition-all flex flex-col items-center justify-center gap-2">
-                  <Image className="w-8 h-8 text-gray-400" />
-                  <span className="text-sm text-gray-600">Add Image</span>
-                </button>
+                  <Button variant="primary" onClick={() => navigate('/admin/settings/gallery')}>
+                    <Plus className="w-4 h-4" />
+                    Add Image
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {landingFormData.gallery.map((image) => (
+                    <div key={image.id} className="relative group">
+                      <div className="aspect-video bg-gray-200 rounded-xl overflow-hidden">
+                        <img
+                          src={image.url}
+                          alt={image.caption}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </GlassCard>
           </div>
