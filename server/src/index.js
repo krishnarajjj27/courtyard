@@ -48,8 +48,7 @@ async function start() {
   });
 
   app.listen(env.port, () => {
-    const mode = env.useSupabase ? 'supabase' : 'mongo';
-    console.log(`Backend API (${mode}) running on http://localhost:${env.port}/api`);
+    console.log(`Backend API (supabase) running on http://localhost:${env.port}/api`);
   });
 }
 
