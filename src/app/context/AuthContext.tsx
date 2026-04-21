@@ -29,6 +29,16 @@ const EMAIL_NOT_CONFIRMED_PATTERN = /email not confirmed|confirm your email/i;
 const AUTH_REQUEST_TIMEOUT_MS = 12000;
 const PROFILE_LOOKUP_TIMEOUT_MS = 3000;
 
+const buildOAuthRedirectUrl = (role: 'user' | 'admin') => {
+  const configuredRedirectBase =
+    (import.meta.env.VITE_OAUTH_REDIRECT_BASE_URL as string | undefined)
+    || (import.meta.env.VITE_SITE_URL as string | undefined)
+    || window.location.origin;
+
+  const normalizedBase = configuredRedirectBase.trim().replace(/\/$/, '');
+  return `${normalizedBase}/auth/callback?role=${role}`;
+};
+
 const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -408,15 +418,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
 
-    const redirectTo = `${window.location.origin}/auth/callback?role=${role}`;
+    const redirectTo = buildOAuthRedirectUrl(role);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo,
+        queryParams: {
+          prompt: 'select_account',
+        },
       },
     });
 
     if (error) {
+      if (/redirect|redirect_to|invalid redirect|not allowed/i.test(error.message || '')) {
+        throw new Error('Google sign-in redirect URL is not allowed. Add this URL in Supabase Auth > URL Configuration: ' + redirectTo);
+      }
       throw error;
     }
   };

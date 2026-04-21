@@ -150,8 +150,6 @@ export const UserLogin = () => {
     setLoading(true);
     try {
       await loginWithGoogle('user');
-      navigate('/user/home');
-      showSuccessToast('Login successful!');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Google login failed. Please try again.';
       showErrorToast('Google login failed', message);

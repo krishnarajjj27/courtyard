@@ -149,7 +149,6 @@ export const UserRegister = () => {
     setLoading(true);
     try {
       await loginWithGoogle('user');
-      navigate('/user/home');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Google signup failed. Please try again.';
       showErrorToast('Google signup failed', message);
