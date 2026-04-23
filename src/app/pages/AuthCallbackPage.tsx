@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { LoaderCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export const AuthCallbackPage = () => {
@@ -45,22 +44,18 @@ export const AuthCallbackPage = () => {
     };
   }, [completeOAuthCallback, navigate, searchParams]);
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="bg-white border border-gray-200 rounded-2xl p-8 w-full max-w-md text-center shadow-sm">
-        {error ? (
-          <>
-            <h1 className="text-xl font-semibold text-red-600 mb-3">Authentication Failed</h1>
-            <p className="text-sm text-gray-600">{error}</p>
-          </>
-        ) : (
-          <>
-            <LoaderCircle className="w-8 h-8 animate-spin text-emerald-500 mx-auto mb-4" />
-            <h1 className="text-xl font-semibold text-gray-900 mb-2">Completing Sign In</h1>
-            <p className="text-sm text-gray-600">Please wait while we finish your authentication.</p>
-          </>
-        )}
+  // Show error only if one occurs, otherwise no UI (silent background processing)
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <div className="bg-white border border-gray-200 rounded-2xl p-8 w-full max-w-md text-center shadow-sm">
+          <h1 className="text-xl font-semibold text-red-600 mb-3">Authentication Failed</h1>
+          <p className="text-sm text-gray-600">{error}</p>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // No UI shown during successful authentication (silent redirect)
+  return null;
 };
