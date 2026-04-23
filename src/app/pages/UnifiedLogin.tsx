@@ -104,8 +104,6 @@ export const UnifiedLogin = () => {
 
     try {
       await login(normalizedEmail, formData.password, 'user');
-      await new Promise(resolve => setTimeout(resolve, 500));
-      showSuccessToast('Login successful!');
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : 'Unable to sign in';
       const message = mapLoginError(rawMessage);
