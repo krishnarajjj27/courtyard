@@ -67,13 +67,6 @@ const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
 const viteEnv = import.meta as ImportMeta & { env?: Record<string, string | undefined> };
 const API_BASE_URL = viteEnv.env?.VITE_API_BASE_URL || '/api';
-const isHostedVercel = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app');
-
-const assertApiConfigured = () => {
-  if (isHostedVercel && !viteEnv.env?.VITE_API_BASE_URL) {
-    throw new Error('Backend API URL is not configured. Set VITE_API_BASE_URL in Vercel environment variables and redeploy.');
-  }
-};
 
 const parseApiPayload = async (response: Response) => {
   const contentType = response.headers.get('content-type') || '';
@@ -357,8 +350,6 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const createBooking = async (booking: Omit<Booking, 'id' | 'createdAt'>, options?: { asAdmin?: boolean }) => {
-    assertApiConfigured();
-
     const conflictingSlot = booking.slots.find(slot => isSlotBooked(slot.date, slot.court, slot.time));
 
     if (conflictingSlot) {
@@ -389,8 +380,6 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const createSubscription = async (subscription: Omit<Subscription, 'id' | 'createdAt'>, options?: { asAdmin?: boolean }) => {
-    assertApiConfigured();
-
     const normalizedTimeSlot = normalizeTimeSlot(subscription.timeSlot);
     const dates = getDateRange(subscription.startDate, subscription.endDate).filter(isWeekday);
     const conflictingDate = dates.find(date => isSlotBooked(date, subscription.court, normalizedTimeSlot));
