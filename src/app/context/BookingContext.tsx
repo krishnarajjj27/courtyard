@@ -67,6 +67,40 @@ const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
 const viteEnv = import.meta as ImportMeta & { env?: Record<string, string | undefined> };
 const API_BASE_URL = viteEnv.env?.VITE_API_BASE_URL || '/api';
+const isHostedVercel = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app');
+
+const assertApiConfigured = () => {
+  if (isHostedVercel && !viteEnv.env?.VITE_API_BASE_URL) {
+    throw new Error('Backend API URL is not configured. Set VITE_API_BASE_URL in Vercel environment variables and redeploy.');
+  }
+};
+
+const parseApiPayload = async (response: Response) => {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    return response.json().catch(() => null);
+  }
+
+  const text = await response.text().catch(() => '');
+  if (/<!doctype html|<html/i.test(text)) {
+    return { __htmlResponse: true };
+  }
+
+  return null;
+};
+
+const getApiErrorMessage = (response: Response, payload: any, fallback: string) => {
+  if (payload?.error?.message) {
+    return payload.error.message;
+  }
+
+  if (payload?.__htmlResponse) {
+    return 'API endpoint is not reachable from this deployment. Configure VITE_API_BASE_URL to your backend URL.';
+  }
+
+  return `${fallback} (HTTP ${response.status})`;
+};
 
 const DEFAULT_APP_SETTINGS = {
   pricing: { offPeak: 500, peak: 800, subscription: 2500 },
@@ -323,6 +357,8 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const createBooking = async (booking: Omit<Booking, 'id' | 'createdAt'>, options?: { asAdmin?: boolean }) => {
+    assertApiConfigured();
+
     const conflictingSlot = booking.slots.find(slot => isSlotBooked(slot.date, slot.court, slot.time));
 
     if (conflictingSlot) {
@@ -340,9 +376,9 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       body: JSON.stringify(booking),
     });
 
-    const payload = await response.json().catch(() => null);
+    const payload = await parseApiPayload(response);
     if (!response.ok || !payload?.booking) {
-      throw new Error(payload?.error?.message || 'Unable to create booking');
+      throw new Error(getApiErrorMessage(response, payload, 'Unable to create booking'));
     }
 
     const newBooking: Booking = payload.booking;
@@ -353,6 +389,8 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const createSubscription = async (subscription: Omit<Subscription, 'id' | 'createdAt'>, options?: { asAdmin?: boolean }) => {
+    assertApiConfigured();
+
     const normalizedTimeSlot = normalizeTimeSlot(subscription.timeSlot);
     const dates = getDateRange(subscription.startDate, subscription.endDate).filter(isWeekday);
     const conflictingDate = dates.find(date => isSlotBooked(date, subscription.court, normalizedTimeSlot));
@@ -375,9 +413,9 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       }),
     });
 
-    const payload = await response.json().catch(() => null);
+    const payload = await parseApiPayload(response);
     if (!response.ok || !payload?.subscription) {
-      throw new Error(payload?.error?.message || 'Unable to create subscription');
+      throw new Error(getApiErrorMessage(response, payload, 'Unable to create subscription'));
     }
 
     const newSubscription: Subscription = payload.subscription;
