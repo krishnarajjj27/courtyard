@@ -148,10 +148,16 @@ async function getAvailability(date, court) {
 
 function mapSlotInput(slot, fallbackDate) {
   const dateKey = toUtcDateKey(slot.date || fallbackDate);
+  const normalizedTimeKey = normalizeTimeRange(slot.time);
+  
+  if (!normalizedTimeKey) {
+    throw new ApiError(400, `Invalid time format: "${slot.time}". Expected format: "H:MM AM/PM - H:MM AM/PM" (e.g., "5:00 AM - 6:00 AM")`);
+  }
+  
   return {
     slot_id: slot.slotId || slot.id || `${dateKey}-${slot.court}-${Math.random().toString(36).slice(2, 8)}`,
     slot_time: slot.time,
-    slot_time_key: normalizeTimeRange(slot.time),
+    slot_time_key: normalizedTimeKey,
     court: Number(slot.court),
     date: dateKey,
     price: Number(slot.price || 0),
@@ -240,7 +246,13 @@ async function createBookingRecord({ userId, userName, userEmail, userPhone, cou
   }
 
   const dateKey = toUtcDateKey(date);
-  const normalizedSlots = slots.map(slot => mapSlotInput(slot, dateKey));
+  
+  let normalizedSlots;
+  try {
+    normalizedSlots = slots.map(slot => mapSlotInput(slot, dateKey));
+  } catch (err) {
+    throw err;
+  }
 
   await assertNoSlotConflicts(normalizedSlots);
 
@@ -291,7 +303,13 @@ async function createBookingRecord({ userId, userName, userEmail, userPhone, cou
     .single();
 
   if (bookingError) {
-    throw new ApiError(500, bookingError.message);
+    const detail = bookingError.details || bookingError.message || 'Unknown error';
+    const message = detail.includes('violates foreign key') 
+      ? 'User profile not found. Please log out and log in again.'
+      : detail.includes('RLS policy')
+      ? 'You do not have permission to create bookings. Please contact support.'
+      : `Booking creation failed: ${detail}`;
+    throw new ApiError(500, message);
   }
 
   const slotPayload = normalizedSlots.map(slot => ({ ...slot, booking_id: booking.id }));
@@ -301,7 +319,8 @@ async function createBookingRecord({ userId, userName, userEmail, userPhone, cou
     .select('*');
 
   if (slotsError) {
-    throw new ApiError(500, slotsError.message);
+    const detail = slotsError.details || slotsError.message || 'Unknown error';
+    throw new ApiError(500, `Failed to save booking slots: ${detail}`);
   }
 
   return mapBookingRow(booking, createdSlots || []);

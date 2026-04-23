@@ -118,16 +118,22 @@ function errorHandler(err, req, res, next) {
   }
 
   const statusCode = err.statusCode || 500;
-  const message = statusCode === 500 ? 'Internal server error' : err.message;
+  const isServerError = statusCode >= 500;
 
-  if (statusCode === 500) {
-    // Keep the runtime logs readable without leaking internals to the client.
-    console.error(err);
+  if (isServerError) {
+    console.error('[ERROR]', {
+      statusCode,
+      message: err.message,
+      stack: err.stack,
+      path: req.path,
+      method: req.method,
+      body: req.body,
+    });
   }
 
   res.status(statusCode).json({
     error: {
-      message,
+      message: err.message,
       statusCode,
     },
   });
