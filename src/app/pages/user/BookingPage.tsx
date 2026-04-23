@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Calendar as CalendarIcon, Clock, Trash2, LogIn, UserPlus, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
@@ -55,9 +55,42 @@ export const BookingPage = () => {
   const { user } = useAuth();
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [serverAvailability, setServerAvailability] = useState<TimeSlot[]>([]);
 
   const timeSlots = generateTimeSlots(selectedDate, selectedCourt, appSettings.pricing, appSettings.operatingHours);
   const courts = appSettings.courts.length ? appSettings.courts : ['Court 1', 'Court 2', 'Court 3'];
+
+  useEffect(() => {
+    let active = true;
+
+    const loadAvailability = async () => {
+      try {
+        const date = selectedDate.toISOString().split('T')[0];
+        const response = await fetch(`/api/availability?date=${date}&court=${selectedCourt}`);
+
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = await response.json();
+        if (!active) {
+          return;
+        }
+
+        setServerAvailability(Array.isArray(payload?.availability) ? payload.availability : []);
+      } catch {
+        if (active) {
+          setServerAvailability([]);
+        }
+      }
+    };
+
+    void loadAvailability();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedDate, selectedCourt]);
 
   const handleSlotClick = (slot: TimeSlot) => {
     if (isSlotBooked(slot.date, slot.court, slot.time)) return;
@@ -265,7 +298,13 @@ export const BookingPage = () => {
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3">
                   {timeSlots.map((slot) => {
                     const selected = isSlotSelected(slot.id);
-                    const booked = isSlotBooked(slot.date, slot.court, slot.time);
+                    const serverBooked = serverAvailability.some(serverSlot => (
+                      serverSlot.date === slot.date
+                      && serverSlot.court === slot.court
+                      && serverSlot.time === slot.time
+                      && serverSlot.status === 'booked'
+                    ));
+                    const booked = serverBooked || isSlotBooked(slot.date, slot.court, slot.time);
                     
                     return (
                       <button

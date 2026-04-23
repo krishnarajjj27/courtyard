@@ -22,6 +22,24 @@ const {
 
 const router = express.Router();
 
+async function resolveAdminTargetUserId(req) {
+	const body = req.body || {};
+	const explicitUserId = typeof body.userId === 'string' ? body.userId.trim() : '';
+	if (explicitUserId && /^[0-9a-fA-F-]{36}$/.test(explicitUserId)) {
+		return explicitUserId;
+	}
+
+	const email = typeof body.userEmail === 'string' ? body.userEmail.trim().toLowerCase() : '';
+	const phone = typeof body.userPhone === 'string' ? body.userPhone.trim() : '';
+	if (!email && !phone) {
+		return req.auth.sub;
+	}
+
+	const users = await listUsers();
+	const match = users.find(user => (email && user.email === email) || (phone && user.phone === phone));
+	return match?.id || req.auth.sub;
+}
+
 router.get('/', (_req, res) => {
 	res.json({ status: 'ok', service: 'tcy-backend', api: '/api' });
 });
@@ -109,7 +127,7 @@ router.get('/admin/users', requireAuth, requireRole('admin'), asyncHandler(async
 router.post('/admin/bookings', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
 	const booking = await createBookingRecord({
 		...req.body,
-		userId: req.body?.userId || req.auth.sub,
+		userId: await resolveAdminTargetUserId(req),
 		userName: req.body?.userName || req.auth.name,
 		userEmail: req.body?.userEmail || req.auth.email,
 		userPhone: req.body?.userPhone || null,
@@ -126,7 +144,7 @@ router.delete('/admin/bookings/:bookingId', requireAuth, requireRole('admin'), a
 router.post('/admin/subscriptions', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
 	const subscription = await createSubscriptionRecord({
 		...req.body,
-		userId: req.body?.userId || req.auth.sub,
+		userId: await resolveAdminTargetUserId(req),
 		userName: req.body?.userName || req.auth.name,
 		userEmail: req.body?.userEmail || req.auth.email,
 		userPhone: req.body?.userPhone || null,

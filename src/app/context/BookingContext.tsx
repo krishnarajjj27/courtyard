@@ -65,7 +65,8 @@ interface BookingContextType {
 
 const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '/api';
+const viteEnv = import.meta as ImportMeta & { env?: Record<string, string | undefined> };
+const API_BASE_URL = viteEnv.env?.VITE_API_BASE_URL || '/api';
 
 const DEFAULT_APP_SETTINGS = {
   pricing: { offPeak: 500, peak: 800, subscription: 2500 },
@@ -247,12 +248,18 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     };
 
+    const handleSettingsUpdated = () => {
+      void fetchSettings();
+    };
+
     window.addEventListener('focus', handleFocus);
+    window.addEventListener('tcy:settings-updated', handleSettingsUpdated as EventListener);
 
     return () => {
       active = false;
       window.clearInterval(pollTimer);
       window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('tcy:settings-updated', handleSettingsUpdated as EventListener);
       subscription.unsubscribe();
     };
   }, []);

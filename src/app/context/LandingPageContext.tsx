@@ -217,6 +217,8 @@ export const LandingPageProvider: React.FC<{ children: ReactNode }> = ({ childre
             },
             body: JSON.stringify({ landing: nextContent }),
           });
+
+          window.dispatchEvent(new CustomEvent('tcy:settings-updated'));
         } catch {
           // Ignore sync failures; local state has already been updated.
         }

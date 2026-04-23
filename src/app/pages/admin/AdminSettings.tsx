@@ -75,6 +75,7 @@ export const AdminSettings = () => {
       throw new Error(result?.error?.message || 'Unable to save settings');
     }
 
+    window.dispatchEvent(new CustomEvent('tcy:settings-updated'));
     return result;
   };
 
