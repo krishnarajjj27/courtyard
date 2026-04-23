@@ -17,7 +17,7 @@ interface AuthContextType {
   requestPasswordReset: (email: string, role: 'user' | 'admin') => Promise<void>;
   updatePassword: (newPassword: string) => Promise<void>;
   loginWithGoogle: (role: 'user' | 'admin') => Promise<void>;
-  completeOAuthCallback: (roleHint?: 'user' | 'admin') => Promise<User | null>;
+  completeOAuthCallback: (roleHint?: 'user' | 'admin') => Promise<{ user: User; verificationRequired: boolean } | null>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -486,27 +486,47 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       throw new Error('Admin access required for this portal');
     }
 
-    setUser(nextUser);
-
-    // Background: enrich user with full profile data
-    if (sessionUser) {
-      void buildUserFromSupabase(sessionUser, roleHint).then((enrichedUser) => {
-        if (enrichedUser) {
-          setUser(enrichedUser);
-        }
+    // Check if email verification is required for OAuth users
+    let verificationRequired = false;
+    if (requiresEmailVerification && sessionUser?.email && !sessionUser.email_confirmed_at) {
+      // Send verification email to the OAuth user
+      const { error: resendError } = await supabase.auth.resend({
+        type: 'signup',
+        email: sessionUser.email,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback?role=${roleHint || 'user'}`,
+        },
       });
-    } else {
-      const { data } = await supabase.auth.getUser();
-      if (data.user) {
-        void buildUserFromSupabase(data.user, roleHint).then((enrichedUser) => {
+
+      if (!resendError) {
+        verificationRequired = true;
+      }
+    }
+
+    // Only set user if verification is not required, or if already verified
+    if (!verificationRequired) {
+      setUser(nextUser);
+
+      // Background: enrich user with full profile data
+      if (sessionUser) {
+        void buildUserFromSupabase(sessionUser, roleHint).then((enrichedUser) => {
           if (enrichedUser) {
             setUser(enrichedUser);
           }
         });
+      } else {
+        const { data } = await supabase.auth.getUser();
+        if (data.user) {
+          void buildUserFromSupabase(data.user, roleHint).then((enrichedUser) => {
+            if (enrichedUser) {
+              setUser(enrichedUser);
+            }
+          });
+        }
       }
     }
 
-    return nextUser;
+    return { user: nextUser, verificationRequired };
   };
 
   const logout = () => {
