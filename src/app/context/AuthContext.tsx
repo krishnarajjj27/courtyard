@@ -36,7 +36,7 @@ const buildOAuthRedirectUrl = (role: 'user' | 'admin') => {
     || window.location.origin;
 
   const normalizedBase = configuredRedirectBase.trim().replace(/\/$/, '');
-  return `${normalizedBase}/auth/callback?role=${role}`;
+  return `${normalizedBase}/login?oauth=1&role=${role}`;
 };
 
 const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
@@ -288,7 +288,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         type: 'signup',
         email: normalizedEmail,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?role=user`,
+          emailRedirectTo: `${window.location.origin}/login?oauth=1&role=user`,
         },
       });
 
@@ -307,7 +307,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       email: normalizedEmail,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?role=user`,
+        emailRedirectTo: `${window.location.origin}/login?oauth=1&role=user`,
         data: {
           name,
           phone,
@@ -351,7 +351,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       type: 'signup',
       email: normalizedEmail,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?role=user`,
+        emailRedirectTo: `${window.location.origin}/login?oauth=1&role=user`,
       },
     });
 
@@ -444,7 +444,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const callbackUrl = new URL(window.location.href);
     const hasAuthCode = callbackUrl.searchParams.has('code');
-    let sessionUser: { id: string; email?: string | null; phone?: string | null; user_metadata?: Record<string, unknown> } | null = null;
+    let sessionUser: { id: string; email?: string | null; phone?: string | null; user_metadata?: Record<string, unknown>; email_confirmed_at?: string | null } | null = null;
 
     // OAuth can return either auth code (PKCE) or tokens in URL hash (implicit).
     // Only call exchangeCodeForSession when code is actually present.
@@ -494,7 +494,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         type: 'signup',
         email: sessionUser.email,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?role=${roleHint || 'user'}`,
+          emailRedirectTo: `${window.location.origin}/login?oauth=1&role=${roleHint || 'user'}`,
         },
       });
 

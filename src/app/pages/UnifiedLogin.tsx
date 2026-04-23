@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, Link } from 'react-router';
+import { useNavigate, Link, useSearchParams } from 'react-router';
 import { Mail, Lock, ArrowLeft } from 'lucide-react';
 import { GlassCard } from '../components/GlassCard';
 import { Button } from '../components/Button';
@@ -36,9 +36,11 @@ const mapLoginError = (message: string) => {
 
 export const UnifiedLogin = () => {
   const navigate = useNavigate();
-  const { user, login, loginWithGoogle, resendVerificationEmail } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { user, login, loginWithGoogle, resendVerificationEmail, completeOAuthCallback } = useAuth();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
   const [resendingVerification, setResendingVerification] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [errors, setErrors] = useState({ email: '', password: '' });
@@ -62,6 +64,64 @@ export const UnifiedLogin = () => {
       window.sessionStorage.removeItem('tcy.auth.notice');
     }
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const hasAuthCode = searchParams.has('code');
+    const hasOAuthIntent = searchParams.get('oauth') === '1';
+    const hasHashToken = /access_token=|id_token=|error=|type=/.test(window.location.hash || '');
+
+    if (!hasAuthCode && !hasOAuthIntent && !hasHashToken) {
+      return;
+    }
+
+    const roleHint = searchParams.get('role') === 'admin' ? 'admin' : 'user';
+
+    const run = async () => {
+      setOauthLoading(true);
+
+      try {
+        const result = await completeOAuthCallback(roleHint);
+        if (!active) {
+          return;
+        }
+
+        if (!result) {
+          navigate(roleHint === 'admin' ? '/admin/login' : '/user/login', { replace: true });
+          return;
+        }
+
+        if (result.verificationRequired) {
+          setNotice(`Verification email sent to ${result.user.email}. Please verify and then sign in again.`);
+          showInfoToast('Verification required', 'Please verify your email from your inbox to continue.');
+          navigate('/login', { replace: true });
+          return;
+        }
+
+        navigate(result.user.role === 'admin' ? '/admin/dashboard' : '/user/home', { replace: true });
+      } catch (oauthError) {
+        if (!active) {
+          return;
+        }
+
+        const message = oauthError instanceof Error ? oauthError.message : 'Google login failed. Please try again.';
+        setErrors(prev => ({ ...prev, password: message }));
+        showErrorToast('Google login failed', message);
+        navigate('/login', { replace: true });
+      } finally {
+        if (active) {
+          setOauthLoading(false);
+        }
+      }
+    };
+
+    void run();
+
+    return () => {
+      active = false;
+    };
+  }, [completeOAuthCallback, navigate, searchParams]);
 
   useEffect(() => {
     if (resendCooldown <= 0) {
@@ -201,10 +261,10 @@ export const UnifiedLogin = () => {
 
             <Button
               type="submit"
-              disabled={loading}
+              disabled={loading || oauthLoading}
               className="w-full"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading || oauthLoading ? 'Signing in...' : 'Sign In'}
             </Button>
           </form>
 
