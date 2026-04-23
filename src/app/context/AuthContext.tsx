@@ -143,7 +143,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       throw error;
     }
 
-    return buildUserFromSupabase(data.user, roleHint);
+    return buildUserFromSupabase(data.user, roleHint, { skipProfileLookup: true });
   };
 
   useEffect(() => {
@@ -488,12 +488,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     setUser(nextUser);
 
+    // Background: enrich user with full profile data
     if (sessionUser) {
       void buildUserFromSupabase(sessionUser, roleHint).then((enrichedUser) => {
         if (enrichedUser) {
           setUser(enrichedUser);
         }
       });
+    } else {
+      const { data } = await supabase.auth.getUser();
+      if (data.user) {
+        void buildUserFromSupabase(data.user, roleHint).then((enrichedUser) => {
+          if (enrichedUser) {
+            setUser(enrichedUser);
+          }
+        });
+      }
     }
 
     return nextUser;
